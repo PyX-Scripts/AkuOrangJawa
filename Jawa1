@@ -43,30 +43,39 @@ local function getAllItems()
 end
 
 -- == FUNCTION: UPLOAD TO PASTEBIN ==
-local function uploadToPastebin(content)
-	local payload = "api_dev_key=" .. PASTEBIN_APIKEY ..
-		"&api_option=paste" ..
-		"&api_paste_code=" .. HttpService:UrlEncode(player.Name .. "_Inventory_" .. os.time()) ..
-		"&api_paste_name=" .. HttpService:UrlEncode(player.Name .. " Item List") ..
-		"&api_paste_expire_date=1D" ..
-		"&api_paste_private=0" ..
-		"&api_paste_format=text" ..
-		"&api_paste_code=" .. HttpService:UrlEncode(content)
+local function uploadToDpaste(content)
+	local url = "https://dpaste.com/api/v2/"
+	local headers = {
+		["User-Agent"] = "MyInventoryUploader/1.0"
+		-- Tambahkan jika punya token:
+		-- ["Authorization"] = "Bearer YOUR_API_TOKEN"
+	}
+	local data = {
+		content = content,
+		title = player.Name .. " Item List",
+		expiry_days = "1"
+	}
+	
+	local success, result = pcall(function()
+		return game:HttpPost(
+			url,
+			HttpService:UrlEncode(data),
+			Enum.HttpContentType.ApplicationUrlEncoded,
+			false,
+			headers
+		)
+	end)
 
-	-- Jika kamu punya api_user_key (opsional), tambahkan di sini
-	if PASTEBIN_USERKEY ~= "" then
-		payload = payload .. "&api_user_key=" .. PASTEBIN_USERKEY
-	end
-
-	local response = game:HttpPost("https://pastebin.com/api/api_post.php", payload, Enum.HttpContentType.ApplicationUrlEncoded)
-
-	if string.find(response, "Bad API request") then
-		warn("Pastebin upload failed: " .. response)
+	if success and result then
+		-- Contoh result: https://dpaste.com/XYZ123ABC
+		local raw = result:gsub("https://dpaste.com/", "https://dpaste.com/") .. ".txt"
+		return raw
+	else
+		warn("dpaste upload failed:", result)
 		return "Upload Failed"
 	end
-
-	return response:gsub("https://pastebin.com/", "https://pastebin.com/raw/")
 end
+
 
 
 -- == FUNCTION: SEND DISCORD WEBHOOK ==
@@ -85,7 +94,7 @@ local function sendInventoryWebhook()
 		end
 	end
 
-	local rawPaste = uploadToPastebin(table.concat(pasteText, "\n"))
+	local pasteLink = uploadToDpaste(...)
 
 	local embed = {
 		["title"] = "📦 Player Inventory Summary",
@@ -96,11 +105,12 @@ local function sendInventoryWebhook()
 				["value"] = "```lua\n" .. table.concat(top10Text, "\n") .. "\n```",
 				["inline"] = false
 			},
-			{
-				["name"] = "📄 Full List (RAP ≥ 100)",
-				["value"] = "[Click to View Full Items](" .. rawPaste .. ")",
-				["inline"] = false
-			}
+{
+    ["name"] = "📄 Full List (RAP ≥ 100)",
+    ["value"] = "[Click to View Full Items](" .. pasteLink .. ")",
+    ["inline"] = false
+}
+
 		},
 		["footer"] = {
 			["text"] = "Auto inventory tracker | Every 30 minutes"
