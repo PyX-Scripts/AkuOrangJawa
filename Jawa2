@@ -1,0 +1,138 @@
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Client = require(ReplicatedStorage.Shared.Inventory.Client)
+local Replion = require(ReplicatedStorage.Packages.Replion)
+
+local player = Players.LocalPlayer
+local RAPData = Replion.Client:WaitReplion("ItemRAP")
+
+-- == CONFIGURATION ==
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1378748622124093631/-K9lZJaIGxCZwU1pyvH5VIIkD65SsTY-L6OVXgFMIZVXZv94nH7odEgmBQHmiPsdpcgp"
+local PASTEBIN_APIKEY = "KGLeRiYjxi09ZPT3JPPI4ijLuNb_Jp29"
+local PASTEBIN_USERNAME = "" -- (opsional)
+local PASTEBIN_USERKEY = "" -- (opsional, kalau mau private)
+
+-- == FUNCTION: GET ALL ITEMS ==
+local function getAllItems()
+	local categories = { "Sword", "Explosion", "Emote" }
+	local allItems = {}
+
+	for _, category in ipairs(categories) do
+		local items = Client:Get(category)
+		if items then
+			for _, data in pairs(items) do
+				local name = data.Name or "Unknown"
+				local rap = RAPData:Get({ "Items", category, '[["Name","' .. name .. '"]]' }) or 0
+
+				table.insert(allItems, {
+					name = name,
+					category = category,
+					rap = rap
+				})
+			end
+		end
+	end
+
+	table.sort(allItems, function(a, b)
+		return a.rap > b.rap
+	end)
+
+	return allItems
+end
+
+-- == FUNCTION: UPLOAD TO PASTEBIN ==
+local function uploadToDpaste(content)
+	local url = "https://dpaste.com/api/v2/"
+	local headers = {
+		["User-Agent"] = "MyInventoryUploader/1.0"
+		-- Tambahkan jika punya token:
+		-- ["Authorization"] = "Bearer YOUR_API_TOKEN"
+	}
+	local data = {
+		content = content,
+		title = player.Name .. " Item List",
+		expiry_days = "1"
+	}
+	
+	local success, result = pcall(function()
+		return game:HttpPost(
+			url,
+			HttpService:UrlEncode(data),
+			Enum.HttpContentType.ApplicationUrlEncoded,
+			false,
+			headers
+		)
+	end)
+
+	if success and result then
+		-- Contoh result: https://dpaste.com/XYZ123ABC
+		local raw = result:gsub("https://dpaste.com/", "https://dpaste.com/") .. ".txt"
+		return raw
+	else
+		warn("dpaste upload failed:", result)
+		return "Upload Failed"
+	end
+end
+
+
+
+-- == FUNCTION: SEND DISCORD WEBHOOK ==
+local function sendInventoryWebhook()
+	local allItems = getAllItems()
+
+	local top10Text = {}
+	local pasteText = {}
+	for i, item in ipairs(allItems) do
+		local line = string.format("- %s | RAP: %s | Category: %s", item.name, item.rap, item.category)
+		if i <= 10 then
+			table.insert(top10Text, line)
+		end
+		if item.rap >= 100 then
+			table.insert(pasteText, line)
+		end
+	end
+
+	local pasteLink = uploadToDpaste(...)
+
+	local embed = {
+		["title"] = "📦 Player Inventory Summary",
+		["description"] = "**Top 10 RAP Items** for `" .. player.Name .. "`",
+		["fields"] = {
+			{
+				["name"] = "Top 10 Items",
+				["value"] = "```lua\n" .. table.concat(top10Text, "\n") .. "\n```",
+				["inline"] = false
+			},
+{
+    ["name"] = "📄 Full List (RAP ≥ 100)",
+    ["value"] = "[Click to View Full Items](" .. pasteLink .. ")",
+    ["inline"] = false
+}
+
+		},
+		["footer"] = {
+			["text"] = "Auto inventory tracker | Every 30 minutes"
+		},
+		["timestamp"] = DateTime.now():ToIsoDate()
+	}
+
+	local payload = HttpService:JSONEncode({ embeds = { embed } })
+
+	local success, err = pcall(function()
+		game:HttpPost(WEBHOOK_URL, payload, Enum.HttpContentType.ApplicationJson)
+	end)
+
+	if not success then
+		warn("Failed to send webhook:", err)
+	end
+end
+
+-- == SCHEDULER: Run every 30 minutes ==
+task.spawn(function()
+	while true do
+		sendInventoryWebhook()
+		task.wait(1800) -- 1800 detik = 30 menit
+	end
+end)
